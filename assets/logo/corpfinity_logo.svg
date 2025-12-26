@@ -1,0 +1,32 @@
+<svg width="200" height="200" viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background circle with gradient -->
+  <defs>
+    <linearGradient id="bgGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#D97756"/>
+      <stop offset="100%" style="stop-color:#E8A090"/>
+    </linearGradient>
+    <linearGradient id="leafGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#7D9B76"/>
+      <stop offset="100%" style="stop-color:#A8C4A0"/>
+    </linearGradient>
+  </defs>
+  
+  <!-- Main circle -->
+  <circle cx="100" cy="100" r="90" fill="url(#bgGradient)"/>
+  
+  <!-- Inner decorative ring -->
+  <circle cx="100" cy="100" r="75" fill="none" stroke="#FFFDF9" stroke-width="2" opacity="0.3"/>
+  
+  <!-- Stylized "C" letter with wellness leaf -->
+  <path d="M130 70C130 70 145 85 145 100C145 115 130 130 100 130C70 130 55 115 55 100C55 85 70 70 100 70" 
+        stroke="#FFFDF9" stroke-width="12" stroke-linecap="round" fill="none"/>
+  
+  <!-- Wellness leaf/sprout element -->
+  <path d="M100 65C100 65 115 50 130 55C130 55 125 75 100 80" 
+        fill="url(#leafGradient)" opacity="0.9"/>
+  <path d="M100 65C100 65 85 50 70 55C70 55 75 75 100 80" 
+        fill="url(#leafGradient)" opacity="0.7"/>
+  
+  <!-- Center dot -->
+  <circle cx="100" cy="100" r="8" fill="#FFFDF9"/>
+</svg>
