@@ -1,0 +1,32 @@
+# CorpFinity Backend Dependencies
+
+# Core Framework
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+
+# Authentication & Security
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+
+# Database
+sqlalchemy[asyncio]==2.0.25
+asyncpg==0.29.0
+psycopg2-binary==2.9.9
+
+# Redis
+redis==5.0.1
+hiredis==2.3.2  # C parser for better performance
+
+# Validation & Config
+pydantic==2.5.3
+pydantic-settings==2.1.0
+python-multipart==0.0.6
+
+# Push Notifications (optional - for FCM/APNs)
+firebase-admin==6.4.0
+
+# HTTP Client
+httpx==0.26.0
+
+# Utils
+python-dateutil==2.8.2
