@@ -7,6 +7,7 @@ import '../models/reminder.dart';
 import 'result.dart';
 
 /// Storage service with error handling for all operations
+/// Integrates with backend API for cloud sync
 class StorageService {
   static const String _userKey = 'zenflow_user';
   static const String _stateKey = 'zenflow_state';
@@ -14,6 +15,8 @@ class StorageService {
   static const String _waterKey = 'zenflow_water';
   static const String _waterDateKey = 'zenflow_water_date';
   static const String _remindersKey = 'zenflow_reminders';
+  static const String _lastSyncKey = 'zenflow_last_sync';
+  static const String _offlineQueueKey = 'zenflow_offline_queue';
 
   /// Gets SharedPreferences instance with error handling
   Future<SharedPreferences> _getPrefs() async {
@@ -25,7 +28,8 @@ class StorageService {
     }
   }
 
-  // User operations
+  // ==================== User Operations ====================
+
   Future<Result<void>> saveUser(User user) async {
     try {
       final prefs = await _getPrefs();
@@ -49,12 +53,6 @@ class StorageService {
     }
   }
 
-  /// Legacy method for backward compatibility
-  Future<User?> getUserLegacy() async {
-    final result = await getUser();
-    return result.dataOrNull;
-  }
-
   Future<Result<void>> removeUser() async {
     try {
       final prefs = await _getPrefs();
@@ -66,7 +64,8 @@ class StorageService {
     }
   }
 
-  // State operations (for home page flow state)
+  // ==================== State Operations ====================
+
   Future<Result<void>> saveState(Map<String, dynamic> state) async {
     try {
       final prefs = await _getPrefs();
@@ -90,13 +89,8 @@ class StorageService {
     }
   }
 
-  /// Legacy method for backward compatibility
-  Future<Map<String, dynamic>?> getStateLegacy() async {
-    final result = await getState();
-    return result.dataOrNull;
-  }
+  // ==================== Challenge History Operations ====================
 
-  // Challenge history operations
   Future<Result<void>> saveHistory(List<ChallengeHistoryItem> history) async {
     try {
       final prefs = await _getPrefs();
@@ -117,8 +111,7 @@ class StorageService {
 
       final List<dynamic> historyJson = jsonDecode(historyString) as List;
       final history = historyJson
-          .map((json) =>
-              ChallengeHistoryItem.fromJson(json as Map<String, dynamic>))
+          .map((json) => ChallengeHistoryItem.fromJson(json as Map<String, dynamic>))
           .toList();
       return Result.success(history);
     } catch (e) {
@@ -127,13 +120,8 @@ class StorageService {
     }
   }
 
-  /// Legacy method for backward compatibility
-  Future<List<ChallengeHistoryItem>> getHistoryLegacy() async {
-    final result = await getHistory();
-    return result.dataOrNull ?? [];
-  }
+  // ==================== Water Intake Operations ====================
 
-  // Water intake operations
   Future<Result<void>> saveWaterIntake(int count, String date) async {
     try {
       final prefs = await _getPrefs();
@@ -158,13 +146,8 @@ class StorageService {
     }
   }
 
-  /// Legacy method for backward compatibility
-  Future<({int count, String date})> getWaterIntakeLegacy() async {
-    final result = await getWaterIntake();
-    return result.dataOrNull ?? (count: 0, date: '');
-  }
+  // ==================== Reminder Operations ====================
 
-  // Reminder operations
   Future<Result<void>> saveReminders(List<Reminder> reminders) async {
     try {
       final prefs = await _getPrefs();
@@ -192,12 +175,6 @@ class StorageService {
       debugPrint('StorageService: Failed to get reminders: $e');
       return Result.failure('Failed to load reminders', e);
     }
-  }
-
-  /// Legacy method for backward compatibility
-  Future<List<Reminder>> getRemindersLegacy() async {
-    final result = await getReminders();
-    return result.dataOrNull ?? [];
   }
 
   Future<Result<void>> addReminder(Reminder reminder) async {
@@ -246,7 +223,64 @@ class StorageService {
     }
   }
 
-  // Clear all data (for account deletion)
+  // ==================== Sync Operations ====================
+
+  /// Get last sync timestamp
+  Future<DateTime?> getLastSyncTime() async {
+    try {
+      final prefs = await _getPrefs();
+      final timestamp = prefs.getInt(_lastSyncKey);
+      return timestamp != null ? DateTime.fromMillisecondsSinceEpoch(timestamp) : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  /// Set last sync timestamp
+  Future<void> setLastSyncTime() async {
+    final prefs = await _getPrefs();
+    await prefs.setInt(_lastSyncKey, DateTime.now().millisecondsSinceEpoch);
+  }
+
+  /// Add operation to offline queue
+  Future<void> addToOfflineQueue(String operation, Map<String, dynamic> data) async {
+    try {
+      final prefs = await _getPrefs();
+      final queueString = prefs.getString(_offlineQueueKey);
+      final queue = queueString != null
+          ? List<Map<String, dynamic>>.from(jsonDecode(queueString) as List)
+          : <Map<String, dynamic>>[];
+      
+      queue.add({
+        'operation': operation,
+        'data': data,
+        'timestamp': DateTime.now().toIso8601String(),
+      });
+      
+      await prefs.setString(_offlineQueueKey, jsonEncode(queue));
+    } catch (e) {
+      debugPrint('StorageService: Failed to add to offline queue: $e');
+    }
+  }
+
+  /// Get and clear offline queue
+  Future<List<Map<String, dynamic>>> getAndClearOfflineQueue() async {
+    try {
+      final prefs = await _getPrefs();
+      final queueString = prefs.getString(_offlineQueueKey);
+      if (queueString == null) return [];
+      
+      final queue = List<Map<String, dynamic>>.from(jsonDecode(queueString) as List);
+      await prefs.remove(_offlineQueueKey);
+      return queue;
+    } catch (e) {
+      debugPrint('StorageService: Failed to get offline queue: $e');
+      return [];
+    }
+  }
+
+  // ==================== Clear All Data ====================
+
   Future<Result<void>> clearAllData() async {
     try {
       final prefs = await _getPrefs();
@@ -257,6 +291,8 @@ class StorageService {
         prefs.remove(_waterKey),
         prefs.remove(_waterDateKey),
         prefs.remove(_remindersKey),
+        prefs.remove(_lastSyncKey),
+        prefs.remove(_offlineQueueKey),
       ]);
       return Result.success(null);
     } catch (e) {
