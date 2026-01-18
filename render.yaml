@@ -2,7 +2,7 @@ services:
   # CorpFinity Backend API
   - type: web
     name: corpfinity-backend
-    runtime: python3
+    env: python
     buildCommand: |
       cd backend && 
       pip install --upgrade pip && 
@@ -41,6 +41,7 @@ services:
         fromService:
           type: redis
           name: corpfinity-redis
+          property: connectionString
       - key: CORS_ORIGINS
         value: https://your-flutter-web-app.com,https://corpfinity-backend.onrender.com,http://localhost:3000,http://localhost:8080
       - key: SUPABASE_REALTIME_ENABLED
@@ -57,6 +58,7 @@ services:
     name: corpfinity-redis
     plan: free  # 25MB free tier
     region: oregon
+    ipAllowList: []  # Empty array allows access from all Render services
     
     # Redis configuration
     maxmemoryPolicy: allkeys-lru  # Evict least recently used keys when memory is full
