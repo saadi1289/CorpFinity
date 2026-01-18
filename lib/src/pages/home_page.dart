@@ -10,7 +10,8 @@ import '../models/goal_option.dart';
 import '../models/challenge.dart';
 import '../models/reminder.dart';
 import '../services/challenge_service.dart';
-import '../services/storage_service.dart';
+import '../services/sync_service.dart';
+import '../services/notification_service.dart';
 
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
@@ -33,8 +34,9 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
-  final _storage = StorageService();
+  final _syncService = SyncService();
   final _challengeService = ChallengeService();
+  final _notificationService = NotificationService();
   
   // State
   AppStep _currentStep = AppStep.welcome;
@@ -55,6 +57,10 @@ class _HomePageState extends State<HomePage> {
   // Reminders
   List<Reminder> _reminders = [];
   
+  // Loading states
+  bool _loadingData = true;
+  bool _syncingData = false;
+  String? _errorMessage;
 
   // Timer
   int _timeLeft = 0;
@@ -65,8 +71,6 @@ class _HomePageState extends State<HomePage> {
 
   // Scroll controller for challenge view
   final _challengeScrollController = ScrollController();
-  
-
   
   // Daily quote
   late ({String text, String author}) _dailyQuote;
@@ -86,37 +90,73 @@ class _HomePageState extends State<HomePage> {
   }
   
   Future<void> _initializeData() async {
-    // Set time of day
-    final hour = DateTime.now().hour;
-    _timeOfDay = hour < 12 ? 'Good Morning' : (hour < 18 ? 'Good Afternoon' : 'Good Evening');
-    
-    // Random quote
-    _dailyQuote = AppConstants.quotes[Random().nextInt(AppConstants.quotes.length)];
-    
-    // Load water intake
-    final waterResult = await _storage.getWaterIntake();
-    final water = waterResult.dataOrNull ?? (count: 0, date: '');
-    final today = DateTime.now().toIso8601String().substring(0, 10);
-    
-    if (water.date == today) {
-      setState(() => _waterIntake = water.count);
-    } else {
-      await _storage.saveWaterIntake(0, today);
-    }
-    
-    // Load state
-    final stateResult = await _storage.getState();
-    final state = stateResult.dataOrNull;
-    if (state != null) {
+    setState(() {
+      _loadingData = true;
+      _errorMessage = null;
+    });
+
+    try {
+      // Set time of day
+      final hour = DateTime.now().hour;
+      _timeOfDay = hour < 12 ? 'Good Morning' : (hour < 18 ? 'Good Afternoon' : 'Good Evening');
+      
+      // Random quote
+      _dailyQuote = AppConstants.quotes[Random().nextInt(AppConstants.quotes.length)];
+      
+      // Initialize sync service
+      await _syncService.initialize();
+      
+      // Load data with API sync
+      await _loadAllData();
+      
+    } catch (e) {
       setState(() {
-        _streak = state['streak'] ?? 0;
-        _lastCompletedDate = state['lastCompletedDate'];
+        _errorMessage = 'Failed to load data: $e';
+      });
+    } finally {
+      setState(() {
+        _loadingData = false;
       });
     }
-    
+  }
+
+  Future<void> _loadAllData() async {
+    // Load water intake
+    final waterResult = await _syncService.getWaterIntake();
+    if (waterResult.isSuccess) {
+      final water = waterResult.data ?? (count: 0, date: '');
+      final today = DateTime.now().toIso8601String().substring(0, 10);
+      
+      if (water.date == today) {
+        _waterIntake = water.count;
+      } else {
+        _waterIntake = 0;
+        // Update to today's date
+        await _syncService.updateWaterIntake(0);
+      }
+    }
+
+    // Load streak data
+    final streakResult = await _syncService.getStreakData();
+    if (streakResult.isSuccess) {
+      final streakData = streakResult.data!;
+      _streak = streakData['current_streak'] ?? 0;
+      _lastCompletedDate = streakData['last_completed_date'];
+    }
+
+    // Load mood
+    final moodResult = await _syncService.getMood();
+    if (moodResult.isSuccess) {
+      _selectedMood = moodResult.data;
+    }
+
     // Load reminders
-    final remindersResult = await _storage.getReminders();
-    setState(() => _reminders = remindersResult.dataOrNull ?? []);
+    final remindersResult = await _syncService.getReminders();
+    if (remindersResult.isSuccess) {
+      _reminders = remindersResult.data!;
+    }
+
+    setState(() {});
   }
   
   int _parseDuration(String duration) {
@@ -193,9 +233,50 @@ class _HomePageState extends State<HomePage> {
   Future<void> _addWater() async {
     if (_waterIntake < 8) {
       final newCount = _waterIntake + 1;
-      final today = DateTime.now().toIso8601String().substring(0, 10);
-      await _storage.saveWaterIntake(newCount, today);
-      setState(() => _waterIntake = newCount);
+      
+      // Update with sync service (handles both local and API)
+      final result = await _syncService.updateWaterIntake(newCount);
+      
+      if (result.isSuccess) {
+        setState(() => _waterIntake = newCount);
+        
+        // Show success feedback
+        if (newCount == 8) {
+          _notificationService.showNotification(
+            title: '🎉 Daily Goal Achieved!',
+            body: 'Great job! You\'ve reached your daily hydration goal.',
+          );
+        }
+      } else {
+        // Show error message
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Failed to update water intake: ${result.errorMessage}'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    }
+  }
+
+  Future<void> _updateMood(String mood) async {
+    final result = await _syncService.updateMood(mood);
+    
+    if (result.isSuccess) {
+      setState(() => _selectedMood = mood);
+    } else {
+      // Show error message but still update locally
+      setState(() => _selectedMood = mood);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Mood saved locally. ${_syncService.isOnline ? 'Sync failed.' : 'Will sync when online.'}'),
+            backgroundColor: _syncService.isOnline ? Colors.orange : Colors.blue,
+          ),
+        );
+      }
     }
   }
   
@@ -204,45 +285,78 @@ class _HomePageState extends State<HomePage> {
       context,
       MaterialPageRoute(builder: (context) => const RemindersPage()),
     );
-    // Reload reminders when returning
-    final remindersResult = await _storage.getReminders();
-    setState(() => _reminders = remindersResult.dataOrNull ?? []);
+    // Reload reminders when returning (with sync)
+    final remindersResult = await _syncService.getReminders();
+    if (remindersResult.isSuccess) {
+      setState(() => _reminders = remindersResult.data!);
+    }
   }
   
   Future<void> _completeChallenge() async {
-    final today = DateTime.now().toIso8601String().substring(0, 10);
-    final isNewDay = _lastCompletedDate != today;
-    
-    // Save to history
-    if (_currentChallenge != null) {
-      final historyItem = ChallengeHistoryItem(
-        id: DateTime.now().millisecondsSinceEpoch.toString(),
-        completedAt: DateTime.now().toIso8601String(),
-        title: _currentChallenge!.title,
-        description: _currentChallenge!.description,
-        duration: _currentChallenge!.duration,
-        emoji: _currentChallenge!.emoji,
-        funFact: _currentChallenge!.funFact,
-      );
+    if (_currentChallenge == null) return;
+
+    setState(() => _syncingData = true);
+
+    try {
+      // Complete challenge with sync service (handles both local and API)
+      final result = await _syncService.completeChallenge(_currentChallenge!);
       
-      final historyResult = await _storage.getHistory();
-      final history = historyResult.dataOrNull ?? [];
-      history.insert(0, historyItem);
-      await _storage.saveHistory(history);
+      if (result.isSuccess) {
+        // Update local state
+        final today = DateTime.now().toIso8601String().substring(0, 10);
+        final isNewDay = _lastCompletedDate != today;
+        final newStreak = isNewDay ? _streak + 1 : _streak;
+        
+        setState(() {
+          _streak = newStreak;
+          _lastCompletedDate = today;
+          _currentStep = AppStep.completed;
+        });
+
+        // Show completion notification
+        await _notificationService.showChallengeCompletionNotification(_currentChallenge!.title);
+        
+        // Show streak notification for milestones
+        if (isNewDay && [3, 7, 14, 30, 50, 100].contains(newStreak)) {
+          await _notificationService.showStreakNotification(newStreak);
+        }
+
+        // Refresh streak data from API
+        final streakResult = await _syncService.getStreakData();
+        if (streakResult.isSuccess) {
+          final streakData = streakResult.data!;
+          setState(() {
+            _streak = streakData['current_streak'] ?? newStreak;
+          });
+        }
+        
+      } else {
+        // Show error but still update locally
+        setState(() {
+          _currentStep = AppStep.completed;
+        });
+        
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Challenge saved locally. ${_syncService.isOnline ? 'Sync failed.' : 'Will sync when online.'}'),
+              backgroundColor: _syncService.isOnline ? Colors.orange : Colors.blue,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to complete challenge: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      setState(() => _syncingData = false);
     }
-    
-    // Update streak
-    final newStreak = isNewDay ? _streak + 1 : _streak;
-    await _storage.saveState({
-      'streak': newStreak,
-      'lastCompletedDate': today,
-    });
-    
-    setState(() {
-      _streak = newStreak;
-      _lastCompletedDate = today;
-      _currentStep = AppStep.completed;
-    });
   }
   
   void _resetFlow() {
@@ -260,29 +374,204 @@ class _HomePageState extends State<HomePage> {
   
   @override
   Widget build(BuildContext context) {
-    return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 400),
-      switchInCurve: Curves.easeOutCubic,
-      switchOutCurve: Curves.easeInCubic,
-      transitionBuilder: (child, animation) {
-        return FadeTransition(
-          opacity: CurvedAnimation(
-            parent: animation,
-            curve: const Interval(0.0, 0.8, curve: Curves.easeOut),
+    // Show loading screen during initial data load
+    if (_loadingData) {
+      return Scaffold(
+        backgroundColor: AppColors.background,
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const CircularProgressIndicator(color: AppColors.primary),
+              const SizedBox(height: 16),
+              Text(
+                'Loading your wellness data...',
+                style: AppTextStyles.bodyMedium.copyWith(
+                  color: AppColors.gray500,
+                ),
+              ),
+            ],
           ),
-          child: SlideTransition(
-            position: Tween<Offset>(
-              begin: const Offset(0.03, 0),
-              end: Offset.zero,
-            ).animate(CurvedAnimation(
-              parent: animation,
-              curve: Curves.easeOutCubic,
-            )),
-            child: child,
+        ),
+      );
+    }
+
+    // Show error screen if data loading failed
+    if (_errorMessage != null) {
+      return Scaffold(
+        backgroundColor: AppColors.background,
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(
+                  LucideIcons.info,
+                  size: 64,
+                  color: AppColors.error,
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'Failed to Load Data',
+                  style: AppTextStyles.h3.copyWith(
+                    color: AppColors.gray900,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  _errorMessage!,
+                  textAlign: TextAlign.center,
+                  style: AppTextStyles.bodyMedium.copyWith(
+                    color: AppColors.gray500,
+                  ),
+                ),
+                const SizedBox(height: 24),
+                CustomButton(
+                  text: 'Retry',
+                  onPressed: _initializeData,
+                  icon: const Icon(LucideIcons.refreshCw, size: 18, color: Colors.white),
+                ),
+              ],
+            ),
           ),
-        );
-      },
-      child: _buildCurrentStep(),
+        ),
+      );
+    }
+
+    return Stack(
+      children: [
+        AnimatedSwitcher(
+          duration: const Duration(milliseconds: 400),
+          switchInCurve: Curves.easeOutCubic,
+          switchOutCurve: Curves.easeInCubic,
+          transitionBuilder: (child, animation) {
+            return FadeTransition(
+              opacity: CurvedAnimation(
+                parent: animation,
+                curve: const Interval(0.0, 0.8, curve: Curves.easeOut),
+              ),
+              child: SlideTransition(
+                position: Tween<Offset>(
+                  begin: const Offset(0.03, 0),
+                  end: Offset.zero,
+                ).animate(CurvedAnimation(
+                  parent: animation,
+                  curve: Curves.easeOutCubic,
+                )),
+                child: child,
+              ),
+            );
+          },
+          child: _buildCurrentStep(),
+        ),
+        
+        // Connection status indicator
+        if (!_syncService.isOnline || _syncService.pendingOperationsCount > 0)
+          Positioned(
+            top: MediaQuery.of(context).padding.top + 8,
+            right: 16,
+            child: _buildConnectionStatus(),
+          ),
+        
+        // Syncing indicator
+        if (_syncingData)
+          Positioned(
+            bottom: 120,
+            left: 16,
+            right: 16,
+            child: _buildSyncingIndicator(),
+          ),
+      ],
+    );
+  }
+  
+  Widget _buildConnectionStatus() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: _syncService.isOnline ? AppColors.success : AppColors.warning,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.1),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            _syncService.isOnline ? LucideIcons.wifi : LucideIcons.wifiOff,
+            size: 14,
+            color: Colors.white,
+          ),
+          const SizedBox(width: 6),
+          Text(
+            _syncService.connectionStatus,
+            style: AppTextStyles.tiny.copyWith(
+              color: Colors.white,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          if (_syncService.pendingOperationsCount > 0) ...[
+            const SizedBox(width: 6),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.3),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                '${_syncService.pendingOperationsCount}',
+                style: AppTextStyles.tiny.copyWith(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSyncingIndicator() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.primary,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.primary.withValues(alpha: 0.3),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          const SizedBox(
+            width: 20,
+            height: 20,
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              valueColor: AlwaysStoppedAnimation(Colors.white),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Text(
+            'Syncing data...',
+            style: AppTextStyles.bodyMedium.copyWith(
+              color: Colors.white,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
     );
   }
   
@@ -531,7 +820,7 @@ class _HomePageState extends State<HomePage> {
             children: AppConstants.moods.map((mood) {
               final isSelected = _selectedMood == mood.label;
               return GestureDetector(
-                onTap: () => setState(() => _selectedMood = mood.label),
+                onTap: () => _updateMood(mood.label),
                 child: Column(
                   children: [
                     AnimatedContainer(

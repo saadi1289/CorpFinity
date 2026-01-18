@@ -3,7 +3,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'dart:math';
 import '../models/user.dart';
 import '../services/auth_service.dart';
-import '../services/storage_service.dart';
+import '../services/sync_service.dart';
 import '../services/notification_service.dart';
 import '../services/share_service.dart';
 import '../theme/app_colors.dart';
@@ -35,7 +35,7 @@ class ProfilePage extends StatefulWidget {
 class _ProfilePageState extends State<ProfilePage>
     with SingleTickerProviderStateMixin {
   final _authService = AuthService();
-  final _storage = StorageService();
+  final _syncService = SyncService();
   final _notificationService = NotificationService();
   
   bool _isEditing = false;
@@ -70,28 +70,46 @@ class _ProfilePageState extends State<ProfilePage>
   }
 
   Future<void> _loadStats() async {
-    final historyResult = await _storage.getHistory();
-    final stateResult = await _storage.getState();
-    
-    final history = historyResult.dataOrNull ?? [];
-    final state = stateResult.dataOrNull;
+    try {
+      // Try to get stats from API first
+      final statsResult = await _syncService.getUserStats();
+      
+      if (statsResult.isSuccess) {
+        final stats = statsResult.data!;
+        setState(() {
+          _totalChallenges = stats['total_challenges'] ?? 0;
+          _currentStreak = stats['total_streak'] ?? 0;
+          _totalMinutes = stats['total_minutes'] ?? 0;
+        });
+      } else {
+        // Fallback to calculating from local data
+        final historyResult = await _syncService.getChallengeHistory();
+        final streakResult = await _syncService.getStreakData();
+        
+        final history = historyResult.dataOrNull ?? [];
+        final streakData = streakResult.dataOrNull;
 
-    int totalMins = 0;
-    for (final item in history) {
-      final duration = item.duration;
-      final num = int.tryParse(duration.split(' ')[0]) ?? 0;
-      if (duration.toLowerCase().contains('min')) {
-        totalMins += num;
-      } else if (duration.toLowerCase().contains('sec')) {
-        totalMins += (num / 60).ceil();
+        int totalMins = 0;
+        for (final item in history) {
+          final duration = item.duration;
+          final num = int.tryParse(duration.split(' ')[0]) ?? 0;
+          if (duration.toLowerCase().contains('min')) {
+            totalMins += num;
+          } else if (duration.toLowerCase().contains('sec')) {
+            totalMins += (num / 60).ceil();
+          }
+        }
+
+        setState(() {
+          _totalChallenges = history.length;
+          _currentStreak = streakData?['current_streak'] ?? 0;
+          _totalMinutes = totalMins;
+        });
       }
+    } catch (e) {
+      // If everything fails, keep default values
+      debugPrint('Failed to load stats: $e');
     }
-
-    setState(() {
-      _totalChallenges = history.length;
-      _currentStreak = state?['streak'] ?? 0;
-      _totalMinutes = totalMins;
-    });
   }
 
   @override
@@ -428,12 +446,15 @@ class _ProfilePageState extends State<ProfilePage>
     setState(() => _loading = true);
     
     try {
-      // Clear all local data
-      await _storage.clearAllData();
-      await _authService.logout();
+      // Delete account via API and clear local data
+      final result = await _authService.deleteAccount();
       
-      if (mounted) {
-        widget.onLogout();
+      if (result.isSuccess) {
+        if (mounted) {
+          widget.onLogout();
+        }
+      } else {
+        throw Exception(result.errorMessage);
       }
     } catch (e) {
       if (mounted) {

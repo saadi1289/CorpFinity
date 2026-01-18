@@ -4,6 +4,8 @@ from typing import Optional
 from datetime import date
 from core.database import get_db
 from services.challenge_service import ChallengeService
+from services.achievement_service import AchievementService
+from services.scheduler_service import SchedulerService
 from schemas.schemas import (
     ChallengeHistoryCreate,
     ChallengeHistoryResponse,
@@ -13,6 +15,7 @@ from schemas.schemas import (
     ErrorResponse,
 )
 from api.auth import get_current_user
+import asyncio
 
 
 router = APIRouter(prefix="/challenges", tags=["Challenges"])
@@ -32,11 +35,47 @@ async def complete_challenge(
     current_user: dict = Depends(get_current_user),
 ):
     """Record a completed challenge."""
-    return await ChallengeService.complete_challenge(
+    # Complete the challenge
+    challenge = await ChallengeService.complete_challenge(
         current_user["user_id"],
         data,
         db
     )
+    
+    # Check for new achievements (async)
+    asyncio.create_task(
+        _check_achievements_after_challenge(current_user["user_id"], db)
+    )
+    
+    # Get updated streak for potential notification
+    streak_data = await ChallengeService.get_streak_data(current_user["user_id"], db)
+    if streak_data:
+        asyncio.create_task(
+            SchedulerService.schedule_streak_notification(
+                current_user["user_id"],
+                streak_data.current_streak,
+            )
+        )
+    
+    return challenge
+
+
+async def _check_achievements_after_challenge(user_id: str, db: AsyncSession) -> None:
+    """Check for new achievements after completing a challenge."""
+    try:
+        newly_unlocked = await AchievementService.check_and_unlock(user_id, db)
+        
+        # Send notifications for newly unlocked achievements
+        for achievement in newly_unlocked:
+            asyncio.create_task(
+                SchedulerService.schedule_achievement_notification(
+                    user_id,
+                    achievement.title,
+                    achievement.emoji,
+                )
+            )
+    except Exception as e:
+        print(f"❌ Error checking achievements: {e}")
 
 
 @router.get(

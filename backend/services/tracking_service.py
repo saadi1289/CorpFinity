@@ -8,6 +8,7 @@ from schemas.schemas import (
 )
 from core.redis import redis_client
 from datetime import date, datetime
+import json
 
 
 class TrackingService:
@@ -22,7 +23,11 @@ class TrackingService:
         # Try cache first
         cached = await redis_client.cache_get("tracking", cache_key)
         if cached:
-            pass  # Return cached data
+            try:
+                cached_data = json.loads(cached)
+                return DailyTrackingResponse(**cached_data)
+            except:
+                pass  # Cache miss or invalid data
         
         result = await db.execute(
             select(DailyTracking)

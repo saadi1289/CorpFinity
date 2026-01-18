@@ -77,7 +77,7 @@ class _InsightsPageState extends State<InsightsPage> {
   
   bool _hasActivity(DateTime date) {
     return _history.any((h) {
-      final hDate = DateTime.parse(h.completedAt);
+      final hDate = h.completedAt;
       return hDate.year == date.year &&
           hDate.month == date.month &&
           hDate.day == date.day;

@@ -126,32 +126,38 @@ class Reminder {
   Map<String, dynamic> toJson() {
     return {
       'id': id,
-      'type': type.index,
+      'type': type.name, // Use string name instead of index
       'title': title,
       'message': message,
-      'timeHour': time.hour,
-      'timeMinute': time.minute,
-      'frequency': frequency.index,
-      'customDays': customDays,
-      'isEnabled': isEnabled,
-      'createdAt': createdAt.toIso8601String(),
+      'time_hour': time.hour, // Match backend field names
+      'time_minute': time.minute,
+      'frequency': frequency.name, // Use string name instead of index
+      'custom_days': customDays,
+      'is_enabled': isEnabled,
+      'created_at': createdAt.toIso8601String(),
     };
   }
 
   factory Reminder.fromJson(Map<String, dynamic> json) {
     return Reminder(
       id: json['id'] as String,
-      type: ReminderType.values[json['type'] as int],
+      type: ReminderType.values.firstWhere(
+        (e) => e.name == json['type'],
+        orElse: () => ReminderType.custom,
+      ),
       title: json['title'] as String,
       message: json['message'] as String,
       time: TimeOfDay(
-        hour: json['timeHour'] as int,
-        minute: json['timeMinute'] as int,
+        hour: json['time_hour'] as int,
+        minute: json['time_minute'] as int,
       ),
-      frequency: ReminderFrequency.values[json['frequency'] as int],
-      customDays: List<int>.from(json['customDays'] ?? []),
-      isEnabled: json['isEnabled'] as bool? ?? true,
-      createdAt: DateTime.parse(json['createdAt'] as String),
+      frequency: ReminderFrequency.values.firstWhere(
+        (e) => e.name == json['frequency'],
+        orElse: () => ReminderFrequency.daily,
+      ),
+      customDays: List<int>.from(json['custom_days'] ?? []),
+      isEnabled: json['is_enabled'] as bool? ?? true,
+      createdAt: DateTime.parse(json['created_at'] as String),
     );
   }
 

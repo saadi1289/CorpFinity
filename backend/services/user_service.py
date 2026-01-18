@@ -1,24 +1,30 @@
-from sqlalchemy import select, func
+from sqlalchemy import select, func, delete
 from sqlalchemy.ext.asyncio import AsyncSession
-from models.models import User, UserStreak, ChallengeHistory
+from models.models import User, UserStreak, ChallengeHistory, DailyTracking
 from schemas.schemas import UserUpdate, UserResponse, UserStats
 from core.redis import redis_client
 from datetime import date, datetime, timedelta
+from typing import Optional
+import json
 
 
 class UserService:
     """User service for profile management."""
     
     @staticmethod
-    async def get_user(user_id: str, db: AsyncSession) -> User:
+    async def get_user(user_id: str, db: AsyncSession) -> Optional[User]:
         """Get user by ID, using cache if available."""
         # Try cache first
         cached = await redis_client.cache_get("user", user_id)
         if cached:
-            result = await db.execute(
-                select(User).where(User.id == user_id)
-            )
-            return result.scalar_one_or_none()
+            try:
+                # Always fetch fresh from database for consistency
+                result = await db.execute(
+                    select(User).where(User.id == user_id)
+                )
+                return result.scalar_one_or_none()
+            except:
+                pass
         
         # Fetch from database
         result = await db.execute(
@@ -28,10 +34,19 @@ class UserService:
         
         if user:
             # Cache user data
+            user_data = {
+                "id": str(user.id),
+                "email": user.email,
+                "name": user.name,
+                "avatar_seed": user.avatar_seed,
+                "created_at": user.created_at.isoformat() if user.created_at else None,
+                "updated_at": user.updated_at.isoformat() if user.updated_at else None,
+                "is_active": user.is_active,
+            }
             await redis_client.cache_set(
                 "user",
                 user_id,
-                user.model_dump_json(),
+                json.dumps(user_data),
                 ttl=3600
             )
         
@@ -64,10 +79,19 @@ class UserService:
         await db.refresh(user)
         
         # Update cache
+        user_data = {
+            "id": str(user.id),
+            "email": user.email,
+            "name": user.name,
+            "avatar_seed": user.avatar_seed,
+            "created_at": user.created_at.isoformat() if user.created_at else None,
+            "updated_at": user.updated_at.isoformat() if user.updated_at else None,
+            "is_active": user.is_active,
+        }
         await redis_client.cache_set(
             "user",
             user_id,
-            user.model_dump_json(),
+            json.dumps(user_data),
             ttl=3600
         )
         
@@ -94,14 +118,22 @@ class UserService:
         # Get achievements count (static for now)
         achievements_unlocked = 0  # Would query user_achievements table
         
-        # Get today's water intake
+        # Get today's water intake from daily tracking
         today = date.today()
         daily_result = await db.execute(
-            select(ChallengeHistory)
-            .where(ChallengeHistory.user_id == user_id)
-            .where(func.date(ChallengeHistory.completed_at) == today)
+            select(DailyTracking)
+            .where(DailyTracking.user_id == user_id)
+            .where(DailyTracking.date == today)
         )
-        today_challenges = len(daily_result.scalars().all())
+        daily_tracking = daily_result.scalar_one_or_none()
+        current_water_intake = daily_tracking.water_intake if daily_tracking else 0
+        
+        # Get user for join date
+        user_result = await db.execute(
+            select(User).where(User.id == user_id)
+        )
+        user = user_result.scalar_one_or_none()
+        join_date = user.created_at.date() if user and user.created_at else date.today()
         
         return UserStats(
             total_challenges=total_challenges,
@@ -109,8 +141,8 @@ class UserService:
             longest_streak=longest_streak,
             achievements_unlocked=achievements_unlocked,
             total_achievements=8,  # Static number based on achievement definitions
-            current_water_intake=today_challenges * 250,  # Estimate: 250ml per challenge
-            join_date=user.created_at.date() if hasattr(user, 'created_at') else date.today(),
+            current_water_intake=current_water_intake,
+            join_date=join_date,
         )
     
     @staticmethod

@@ -1,0 +1,62 @@
+services:
+  # CorpFinity Backend API
+  - type: web
+    name: corpfinity-backend
+    runtime: python3
+    buildCommand: |
+      cd backend && 
+      pip install --upgrade pip && 
+      pip install -r requirements.txt
+    startCommand: |
+      cd backend && 
+      uvicorn api.index:app --host 0.0.0.0 --port $PORT --workers 1
+    plan: starter  # $7/month - better for production (512MB RAM, no sleep)
+    region: oregon  # Choose your preferred region
+    branch: main  # Deploy from main branch
+    rootDir: .  # Root directory of your repo
+    
+    # Environment Variables (Set these in Render Dashboard)
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: DEBUG
+        value: false
+      - key: LOG_LEVEL
+        value: INFO
+      - key: DATABASE_URL
+        sync: false  # Set manually in Render dashboard with your Supabase credentials
+      - key: SUPABASE_URL
+        value: https://ywmeiptfbgraabvcxhgc.supabase.co
+      - key: SUPABASE_ANON_KEY
+        value: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inl3bWVpcHRmYmdyYWFidmN4aGdjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Mzc0NzE2NzQsImV4cCI6MjA1MzA0NzY3NH0.Op7-orO7Os-LgslcJZ27Zg_JJElD57m
+      - key: SECRET_KEY
+        generateValue: true  # Render will generate a secure secret
+      - key: JWT_ALGORITHM
+        value: HS256
+      - key: ACCESS_TOKEN_EXPIRE_MINUTES
+        value: 30
+      - key: REFRESH_TOKEN_EXPIRE_MINUTES
+        value: 10080
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: corpfinity-redis
+      - key: CORS_ORIGINS
+        value: https://your-flutter-web-app.com,https://corpfinity-backend.onrender.com,http://localhost:3000,http://localhost:8080
+      - key: SUPABASE_REALTIME_ENABLED
+        value: true
+    
+    # Health check
+    healthCheckPath: /health
+    
+    # Auto-deploy on git push
+    autoDeploy: true
+
+  # Redis Cache Service
+  - type: redis
+    name: corpfinity-redis
+    plan: free  # 25MB free tier
+    region: oregon
+    
+    # Redis configuration
+    maxmemoryPolicy: allkeys-lru  # Evict least recently used keys when memory is full

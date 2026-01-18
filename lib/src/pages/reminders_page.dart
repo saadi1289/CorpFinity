@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../models/reminder.dart';
-import '../services/storage_service.dart';
+import '../services/sync_service.dart';
 import '../services/notification_service.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
@@ -15,7 +15,7 @@ class RemindersPage extends StatefulWidget {
 }
 
 class _RemindersPageState extends State<RemindersPage> {
-  final _storage = StorageService();
+  final _syncService = SyncService();
   final _notifications = NotificationService();
   List<Reminder> _reminders = [];
   bool _loading = true;
@@ -27,7 +27,7 @@ class _RemindersPageState extends State<RemindersPage> {
   }
 
   Future<void> _loadReminders() async {
-    final remindersResult = await _storage.getReminders();
+    final remindersResult = await _syncService.getReminders();
     setState(() {
       _reminders = remindersResult.dataOrNull ?? [];
       _loading = false;
@@ -36,7 +36,9 @@ class _RemindersPageState extends State<RemindersPage> {
 
   Future<void> _toggleReminder(Reminder reminder) async {
     final updated = reminder.copyWith(isEnabled: !reminder.isEnabled);
-    await _storage.updateReminder(updated);
+    
+    // Update with sync service (handles both local and API)
+    final result = await _syncService.saveReminder(updated);
 
     if (updated.isEnabled) {
       await _notifications.scheduleReminder(updated);
@@ -45,18 +47,34 @@ class _RemindersPageState extends State<RemindersPage> {
     }
 
     await _loadReminders();
+    
+    // Show feedback if sync failed
+    if (result.isFailure && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Reminder updated locally. ${_syncService.isOnline ? 'Sync failed.' : 'Will sync when online.'}'),
+          backgroundColor: _syncService.isOnline ? Colors.orange : Colors.blue,
+        ),
+      );
+    }
   }
 
   Future<void> _deleteReminder(Reminder reminder) async {
     await _notifications.cancelReminder(reminder.id);
-    await _storage.deleteReminder(reminder.id);
+    
+    // Delete with sync service (handles both local and API)
+    final result = await _syncService.deleteReminder(reminder.id);
+    
     await _loadReminders();
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('${reminder.title} deleted'),
+          content: Text(result.isSuccess 
+            ? '${reminder.title} deleted'
+            : 'Reminder deleted locally. ${_syncService.isOnline ? 'Sync failed.' : 'Will sync when online.'}'),
           behavior: SnackBarBehavior.floating,
+          backgroundColor: result.isFailure && _syncService.isOnline ? Colors.orange : null,
         ),
       );
     }
@@ -120,7 +138,7 @@ class _RemindersPageState extends State<RemindersPage> {
       backgroundColor: Colors.transparent,
       builder: (context) => AddReminderSheet(
         onSave: (reminder) async {
-          await _storage.addReminder(reminder);
+          await _syncService.saveReminder(reminder);
           await _notifications.scheduleReminder(reminder);
           await _loadReminders();
         },

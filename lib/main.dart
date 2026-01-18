@@ -7,6 +7,7 @@ import 'src/theme/app_theme.dart';
 import 'src/models/user.dart';
 import 'src/models/app_view.dart';
 import 'src/services/auth_service.dart';
+import 'src/services/sync_service.dart';
 import 'src/services/notification_service.dart';
 import 'src/widgets/app_layout.dart';
 import 'src/widgets/bottom_navbar.dart';
@@ -24,6 +25,9 @@ void main() async {
   
   // Initialize notification service
   await NotificationService().initialize();
+  
+  // Initialize sync service
+  await SyncService().initialize();
   
   // Optimize for high refresh rate displays and set system UI
   if (!kIsWeb) {

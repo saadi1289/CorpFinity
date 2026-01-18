@@ -120,6 +120,32 @@ class StorageService {
     }
   }
 
+  /// Save individual challenge to history
+  Future<Result<void>> saveChallenge(ChallengeHistoryItem challenge) async {
+    try {
+      final historyResult = await getHistory();
+      if (historyResult.isFailure) return Result.failure(historyResult.errorMessage!);
+      
+      final history = historyResult.data!;
+      // Remove existing challenge with same ID if any
+      history.removeWhere((item) => item.id == challenge.id);
+      // Add new challenge
+      history.add(challenge);
+      // Sort by completion date (newest first)
+      history.sort((a, b) => b.completedAt.compareTo(a.completedAt));
+      
+      return await saveHistory(history);
+    } catch (e) {
+      debugPrint('StorageService: Failed to save challenge: $e');
+      return Result.failure('Failed to save challenge', e);
+    }
+  }
+
+  /// Get challenge history (alias for getHistory for consistency)
+  Future<Result<List<ChallengeHistoryItem>>> getChallengeHistory() async {
+    return await getHistory();
+  }
+
   // ==================== Water Intake Operations ====================
 
   Future<Result<void>> saveWaterIntake(int count, String date) async {
@@ -132,6 +158,12 @@ class StorageService {
       debugPrint('StorageService: Failed to save water intake: $e');
       return Result.failure('Failed to save water intake', e);
     }
+  }
+
+  /// Save water intake with current date
+  Future<Result<void>> saveWaterIntakeToday(int count) async {
+    final today = DateTime.now().toIso8601String().substring(0, 10);
+    return await saveWaterIntake(count, today);
   }
 
   Future<Result<({int count, String date})>> getWaterIntake() async {
@@ -220,6 +252,169 @@ class StorageService {
     } catch (e) {
       debugPrint('StorageService: Failed to delete reminder: $e');
       return Result.failure('Failed to delete reminder', e);
+    }
+  }
+
+  /// Save individual reminder
+  Future<Result<void>> saveReminder(Reminder reminder) async {
+    try {
+      final result = await getReminders();
+      if (result.isFailure) return Result.failure(result.errorMessage!);
+
+      final reminders = result.data!;
+      final index = reminders.indexWhere((r) => r.id == reminder.id);
+      
+      if (index != -1) {
+        reminders[index] = reminder;
+      } else {
+        reminders.add(reminder);
+      }
+      
+      return await saveReminders(reminders);
+    } catch (e) {
+      debugPrint('StorageService: Failed to save reminder: $e');
+      return Result.failure('Failed to save reminder', e);
+    }
+  }
+
+  // ==================== Mood Operations ====================
+
+  Future<Result<void>> saveMood(String mood) async {
+    try {
+      final prefs = await _getPrefs();
+      final today = DateTime.now().toIso8601String().substring(0, 10);
+      await prefs.setString('mood_$today', mood);
+      return Result.success(null);
+    } catch (e) {
+      debugPrint('StorageService: Failed to save mood: $e');
+      return Result.failure('Failed to save mood', e);
+    }
+  }
+
+  Future<Result<String?>> getMood() async {
+    try {
+      final prefs = await _getPrefs();
+      final today = DateTime.now().toIso8601String().substring(0, 10);
+      final mood = prefs.getString('mood_$today');
+      return Result.success(mood);
+    } catch (e) {
+      debugPrint('StorageService: Failed to get mood: $e');
+      return Result.failure('Failed to load mood', e);
+    }
+  }
+
+  // ==================== Streak Data Operations ====================
+
+  Future<Result<void>> saveStreakData(Map<String, dynamic> streakData) async {
+    try {
+      final prefs = await _getPrefs();
+      await prefs.setString('streak_data', jsonEncode(streakData));
+      return Result.success(null);
+    } catch (e) {
+      debugPrint('StorageService: Failed to save streak data: $e');
+      return Result.failure('Failed to save streak data', e);
+    }
+  }
+
+  Future<Result<Map<String, dynamic>>> getStreakData() async {
+    try {
+      final prefs = await _getPrefs();
+      final streakString = prefs.getString('streak_data');
+      if (streakString == null) {
+        // Return default streak data
+        return Result.success({
+          'current_streak': 0,
+          'longest_streak': 0,
+          'last_completed_date': null,
+          'updated_at': DateTime.now().toIso8601String(),
+        });
+      }
+      return Result.success(jsonDecode(streakString) as Map<String, dynamic>);
+    } catch (e) {
+      debugPrint('StorageService: Failed to get streak data: $e');
+      return Result.failure('Failed to load streak data', e);
+    }
+  }
+
+  // ==================== Achievements Operations ====================
+
+  Future<Result<void>> saveAchievements(Map<String, dynamic> achievements) async {
+    try {
+      final prefs = await _getPrefs();
+      await prefs.setString('achievements', jsonEncode(achievements));
+      return Result.success(null);
+    } catch (e) {
+      debugPrint('StorageService: Failed to save achievements: $e');
+      return Result.failure('Failed to save achievements', e);
+    }
+  }
+
+  Future<Result<Map<String, dynamic>>> getAchievements() async {
+    try {
+      final prefs = await _getPrefs();
+      final achievementsString = prefs.getString('achievements');
+      if (achievementsString == null) {
+        return Result.failure('No cached achievements');
+      }
+      return Result.success(jsonDecode(achievementsString) as Map<String, dynamic>);
+    } catch (e) {
+      debugPrint('StorageService: Failed to get achievements: $e');
+      return Result.failure('Failed to load achievements', e);
+    }
+  }
+
+  // ==================== User Stats Operations ====================
+
+  Future<Result<void>> saveUserStats(Map<String, dynamic> stats) async {
+    try {
+      final prefs = await _getPrefs();
+      await prefs.setString('user_stats', jsonEncode(stats));
+      return Result.success(null);
+    } catch (e) {
+      debugPrint('StorageService: Failed to save user stats: $e');
+      return Result.failure('Failed to save user stats', e);
+    }
+  }
+
+  Future<Result<Map<String, dynamic>>> getUserStats() async {
+    try {
+      final prefs = await _getPrefs();
+      final statsString = prefs.getString('user_stats');
+      if (statsString == null) {
+        return Result.failure('No cached user stats');
+      }
+      return Result.success(jsonDecode(statsString) as Map<String, dynamic>);
+    } catch (e) {
+      debugPrint('StorageService: Failed to get user stats: $e');
+      return Result.failure('Failed to load user stats', e);
+    }
+  }
+
+  // ==================== Pending Operations ====================
+
+  Future<Result<void>> savePendingOperations(List<Map<String, dynamic>> operations) async {
+    try {
+      final prefs = await _getPrefs();
+      await prefs.setString('pending_operations', jsonEncode(operations));
+      return Result.success(null);
+    } catch (e) {
+      debugPrint('StorageService: Failed to save pending operations: $e');
+      return Result.failure('Failed to save pending operations', e);
+    }
+  }
+
+  Future<Result<List<Map<String, dynamic>>>> getPendingOperations() async {
+    try {
+      final prefs = await _getPrefs();
+      final operationsString = prefs.getString('pending_operations');
+      if (operationsString == null) {
+        return Result.success([]);
+      }
+      final operations = List<Map<String, dynamic>>.from(jsonDecode(operationsString) as List);
+      return Result.success(operations);
+    } catch (e) {
+      debugPrint('StorageService: Failed to get pending operations: $e');
+      return Result.failure('Failed to load pending operations', e);
     }
   }
 

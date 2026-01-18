@@ -6,6 +6,8 @@ class GeneratedChallenge {
   final String duration;
   final String emoji;
   final String? funFact;
+  final String? goalCategory;
+  final String? energyLevel;
   
   const GeneratedChallenge({
     required this.title,
@@ -13,6 +15,8 @@ class GeneratedChallenge {
     required this.duration,
     required this.emoji,
     this.funFact,
+    this.goalCategory,
+    this.energyLevel,
   });
   
   Map<String, dynamic> toJson() {
@@ -22,6 +26,8 @@ class GeneratedChallenge {
       'duration': duration,
       'emoji': emoji,
       'funFact': funFact,
+      'goalCategory': goalCategory,
+      'energyLevel': energyLevel,
     };
   }
   
@@ -32,22 +38,26 @@ class GeneratedChallenge {
       duration: json['duration'] as String,
       emoji: json['emoji'] as String,
       funFact: json['funFact'] as String?,
+      goalCategory: json['goalCategory'] as String?,
+      energyLevel: json['energyLevel'] as String?,
     );
   }
 }
 
 class ChallengeHistoryItem extends GeneratedChallenge {
   final String id;
-  final String completedAt;
+  final DateTime completedAt;
   
   const ChallengeHistoryItem({
     required this.id,
     required this.completedAt,
     required super.title,
-    required super.description,
     required super.duration,
     required super.emoji,
+    super.description = '',
     super.funFact,
+    super.goalCategory,
+    super.energyLevel,
   });
   
   @override
@@ -55,19 +65,21 @@ class ChallengeHistoryItem extends GeneratedChallenge {
     return {
       ...super.toJson(),
       'id': id,
-      'completedAt': completedAt,
+      'completedAt': completedAt.toIso8601String(),
     };
   }
   
   factory ChallengeHistoryItem.fromJson(Map<String, dynamic> json) {
     return ChallengeHistoryItem(
       id: json['id'] as String,
-      completedAt: json['completedAt'] as String,
+      completedAt: DateTime.parse(json['completedAt'] as String),
       title: json['title'] as String,
-      description: json['description'] as String,
+      description: json['description'] as String? ?? '',
       duration: json['duration'] as String,
       emoji: json['emoji'] as String,
       funFact: json['funFact'] as String?,
+      goalCategory: json['goalCategory'] as String?,
+      energyLevel: json['energyLevel'] as String?,
     );
   }
   

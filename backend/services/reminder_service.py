@@ -4,7 +4,9 @@ from models.models import Reminder
 from schemas.schemas import ReminderCreate, ReminderUpdate, ReminderResponse, ReminderListResponse
 from core.redis import redis_client
 from datetime import datetime
+from typing import List
 import uuid
+import json
 
 
 class ReminderService:
@@ -49,7 +51,11 @@ class ReminderService:
         cache_key = f"{user_id}:{enabled_only}"
         cached = await redis_client.cache_get("reminders", cache_key)
         if cached:
-            pass  # Return cached data
+            try:
+                cached_data = json.loads(cached)
+                return ReminderListResponse(**cached_data)
+            except:
+                pass  # Cache miss or invalid data
         
         query = select(Reminder).where(Reminder.user_id == user_id)
         
@@ -197,7 +203,7 @@ class ReminderService:
         return ReminderResponse.model_validate(reminder)
     
     @staticmethod
-    async def get_enabled_reminders(user_id: str, db: AsyncSession) -> list[ReminderResponse]:
+    async def get_enabled_reminders(user_id: str, db: AsyncSession) -> List[ReminderResponse]:
         """Get all enabled reminders for scheduling."""
         result = await db.execute(
             select(Reminder)

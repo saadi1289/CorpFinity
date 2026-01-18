@@ -77,7 +77,7 @@ class ChallengeHistory(Base):
     user = relationship("User", back_populates="challenges")
     
     __table_args__ = (
-        Index("idx_challenge_user_completed", "user_id", "completed_at DESC"),
+        Index("idx_challenge_user_completed", "user_id", "completed_at"),
     )
     
     def __repr__(self):

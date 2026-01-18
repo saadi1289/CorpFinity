@@ -71,29 +71,18 @@ async def unregister_push_token(
     },
 )
 async def test_notification(
-    title: str = "CorpFinity",
+    title: str = "CorpFinity Test",
     body: str = "This is a test notification from CorpFinity!",
     db: AsyncSession = Depends(get_db),
     current_user: dict = Depends(get_current_user),
 ):
     """Send a test notification to the current user."""
-    # Get user's push tokens
-    tokens = await NotificationService.get_user_tokens(
+    result = await NotificationService.send_test_notification(
         current_user["user_id"],
         db
     )
     
-    if not tokens:
-        return {
-            "message": "No push tokens registered",
-            "tokens_count": 0,
-        }
-    
-    # In a real implementation, this would send via FCM/APNs
-    # For now, just return success
     return {
-        "message": "Test notification queued",
-        "title": title,
-        "body": body,
-        "tokens_count": len(tokens),
+        "message": "Test notification sent",
+        "result": result,
     }

@@ -4,6 +4,8 @@ from models.models import ChallengeHistory, UserStreak
 from schemas.schemas import ChallengeHistoryCreate, ChallengeHistoryResponse, ChallengeHistoryListResponse
 from core.redis import redis_client
 from datetime import datetime, date, timedelta
+from typing import Optional
+import json
 
 
 class ChallengeService:
@@ -54,8 +56,11 @@ class ChallengeService:
         # Try cache first
         cached = await redis_client.cache_get("challenges", cache_key)
         if cached:
-            # Parse cached response
-            pass  # Return cached data
+            try:
+                cached_data = json.loads(cached)
+                return ChallengeHistoryListResponse(**cached_data)
+            except:
+                pass  # Cache miss or invalid data
         
         # Build query
         query = select(ChallengeHistory).where(
@@ -63,9 +68,9 @@ class ChallengeService:
         )
         
         if start_date:
-            query = query.where(ChallengeHistory.completed_at >= start_date)
+            query = query.where(func.date(ChallengeHistory.completed_at) >= start_date)
         if end_date:
-            query = query.where(ChallengeHistory.completed_at <= end_date)
+            query = query.where(func.date(ChallengeHistory.completed_at) <= end_date)
         
         # Get total count
         count_query = select(func.count()).select_from(query.subquery())
@@ -87,7 +92,12 @@ class ChallengeService:
         )
         
         # Cache response
-        # await redis_client.cache_set("challenges", cache_key, response.model_dump_json(), 300)
+        await redis_client.cache_set(
+            "challenges", 
+            cache_key, 
+            response.model_dump_json(), 
+            ttl=300
+        )
         
         return response
     
@@ -165,13 +175,20 @@ class ChallengeService:
         await db.flush()
     
     @staticmethod
-    async def get_streak_data(user_id: str, db: AsyncSession) -> UserStreak:
+    async def get_streak_data(user_id: str, db: AsyncSession) -> Optional[UserStreak]:
         """Get user streak data."""
         # Try cache first
         cached = await redis_client.cache_get("streak", user_id)
         if cached:
-            # Parse cached data
-            pass
+            try:
+                cached_data = json.loads(cached)
+                # Return from database for full object
+                result = await db.execute(
+                    select(UserStreak).where(UserStreak.user_id == user_id)
+                )
+                return result.scalar_one_or_none()
+            except:
+                pass
         
         result = await db.execute(
             select(UserStreak).where(UserStreak.user_id == user_id)
@@ -180,10 +197,16 @@ class ChallengeService:
         
         if streak:
             # Cache streak data
+            streak_data = {
+                "current_streak": streak.current_streak,
+                "longest_streak": streak.longest_streak,
+                "last_completed_date": str(streak.last_completed_date) if streak.last_completed_date else None,
+                "updated_at": streak.updated_at.isoformat() if streak.updated_at else None,
+            }
             await redis_client.cache_set(
                 "streak",
                 user_id,
-                streak.model_dump_json(),
+                json.dumps(streak_data),
                 ttl=300
             )
         

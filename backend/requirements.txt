@@ -8,10 +8,13 @@ uvicorn[standard]==0.27.0
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
 
-# Database
+# Database (Supabase PostgreSQL)
 sqlalchemy[asyncio]==2.0.25
 asyncpg==0.29.0
 psycopg2-binary==2.9.9
+
+# Supabase Client (Optional - for real-time features)
+supabase==2.3.4
 
 # Redis
 redis==5.0.1
@@ -30,3 +33,6 @@ httpx==0.26.0
 
 # Utils
 python-dateutil==2.8.2
+
+# Production Dependencies
+gunicorn==21.2.0  # For production WSGI server

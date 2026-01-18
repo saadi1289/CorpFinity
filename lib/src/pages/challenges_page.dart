@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'dart:math' as math;
 import '../models/challenge.dart';
-import '../services/storage_service.dart';
+import '../services/sync_service.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
 import '../theme/app_text_styles.dart';
@@ -20,7 +20,7 @@ class ChallengesPage extends StatefulWidget {
 }
 
 class _ChallengesPageState extends State<ChallengesPage> {
-  final _storage = StorageService();
+  final _syncService = SyncService();
   late String _activeTab;
   List<ChallengeHistoryItem> _history = [];
   bool _loading = true;
@@ -47,22 +47,30 @@ class _ChallengesPageState extends State<ChallengesPage> {
     });
 
     try {
-      final historyResult = await _storage.getHistory();
+      // Load challenge history with sync
+      final historyResult = await _syncService.getChallengeHistory();
       if (!mounted) return;
       
-      final history = historyResult.dataOrNull ?? [];
-      setState(() {
-        _history = history;
-        _breathingSessions = history.where((h) {
-          final date = DateTime.parse(h.completedAt);
-          final today = DateTime.now();
-          return date.day == today.day &&
-              date.month == today.month &&
-              date.year == today.year &&
-              h.title.toLowerCase().contains('breath');
-        }).length.clamp(0, 3);
-        _loading = false;
-      });
+      if (historyResult.isSuccess) {
+        final history = historyResult.data!;
+        setState(() {
+          _history = history;
+          _breathingSessions = history.where((h) {
+            final date = h.completedAt;
+            final today = DateTime.now();
+            return date.day == today.day &&
+                date.month == today.month &&
+                date.year == today.year &&
+                h.title.toLowerCase().contains('breath');
+          }).length.clamp(0, 3);
+          _loading = false;
+        });
+      } else {
+        setState(() {
+          _error = historyResult.errorMessage;
+          _loading = false;
+        });
+      }
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -528,7 +536,7 @@ class _ChallengesPageState extends State<ChallengesPage> {
 
   Widget _buildWeeklyChallenge() {
     final completedThisWeek = _history.where((h) {
-      final date = DateTime.parse(h.completedAt);
+      final date = h.completedAt;
       final now = DateTime.now();
       final weekStart = now.subtract(Duration(days: now.weekday - 1));
       return date.isAfter(weekStart);
@@ -645,7 +653,7 @@ class _ChallengesPageState extends State<ChallengesPage> {
 
     final groupedHistory = <String, List<ChallengeHistoryItem>>{};
     for (final item in _history) {
-      final date = DateTime.parse(item.completedAt);
+      final date = item.completedAt;
       final key = _formatDateKey(date);
       groupedHistory.putIfAbsent(key, () => []).add(item);
     }
@@ -694,7 +702,7 @@ class _ChallengesPageState extends State<ChallengesPage> {
   }
 
   Widget _buildHistoryItem(ChallengeHistoryItem item) {
-    final completedDate = DateTime.parse(item.completedAt);
+    final completedDate = item.completedAt;
     final timeStr =
         '${completedDate.hour.toString().padLeft(2, '0')}:${completedDate.minute.toString().padLeft(2, '0')}';
 

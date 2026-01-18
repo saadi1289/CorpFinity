@@ -56,7 +56,7 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
+
 lib64/
 parts/
 sdist/
@@ -69,3 +69,16 @@ venv/
 ENV/
 .env
 .venv
+
+# Startup script logs
+backend.log
+flutter.log
+*.log
+
+# Backend virtual environment
+backend/venv/
+
+# Local database files
+*.db
+*.sqlite
+*.sqlite3

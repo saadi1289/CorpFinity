@@ -3,6 +3,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../models/user.dart';
 import '../services/auth_service.dart';
+import '../services/result.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
 import '../theme/app_text_styles.dart';
@@ -56,11 +57,25 @@ class _AuthPageState extends State<AuthPage> with SingleTickerProviderStateMixin
     setState(() => _loading = true);
     
     try {
-      final user = await _authService.login(
-        _emailController.text,
-        _isSignUp ? _nameController.text : null,
-      );
-      widget.onLogin(user);
+      final Result<User> result;
+      if (_isSignUp) {
+        result = await _authService.register(
+          _emailController.text,
+          _passwordController.text,
+          _nameController.text,
+        );
+      } else {
+        result = await _authService.login(
+          _emailController.text,
+          _passwordController.text,
+        );
+      }
+
+      if (result.isSuccess) {
+        widget.onLogin(result.data);
+      } else {
+        throw Exception(result.errorMessage ?? 'Authentication failed');
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
